@@ -1,0 +1,53 @@
+================================================================
+Lab 01 — OSPF Verification (real captures from the running lab)
+================================================================
+
+All routes below were learned dynamically via OSPF. No static routes
+are configured anywhere in this lab.
+
+----------------------------------------------------------------
+[1] HQ — full routing table (converged: BOTH branch LANs present)
+----------------------------------------------------------------
+vyos@HQ:~$ show ip route ospf
+
+O   10.0.12.0/30 [110/1] is directly connected, eth0     # WAN to Branch1
+O   10.0.13.0/30 [110/1] is directly connected, eth1     # WAN to Branch2
+O   10.1.0.0/24  [110/1] is directly connected, dum0     # HQ LAN
+O>* 10.2.0.0/24  [110/2] via 10.0.12.2, eth0             # Branch1 LAN
+O>* 10.3.0.0/24  [110/2] via 10.0.13.2, eth1             # Branch2 LAN
+
+----------------------------------------------------------------
+[2] Branch1 — routing table (reaches every site, incl. Branch2)
+----------------------------------------------------------------
+vyos@Branch1:~$ show ip route ospf
+
+O   10.0.12.0/30 [110/1] is directly connected, eth0
+O>* 10.0.13.0/30 [110/2] via 10.0.12.1, eth0
+O>* 10.1.0.0/24  [110/2] via 10.0.12.1, eth0             # HQ LAN
+O   10.2.0.0/24  [110/1] is directly connected, dum0     # own LAN
+O>* 10.3.0.0/24  [110/3] via 10.0.12.1, eth0             # Branch2 LAN (cost 3 = B1->HQ->B2)
+
+----------------------------------------------------------------
+[3] Adjacency on a point-to-point /30 (note "Full/-": no DR/BDR)
+----------------------------------------------------------------
+vyos@Branch1:~$ show ip ospf neighbor
+
+Neighbor ID  Pri State        Up Time   Dead Time  Address     Interface
+1.1.1.1        1 Full/-       1m08s     36.847s    10.0.12.1   eth0:10.0.12.2
+
+----------------------------------------------------------------
+[4] END-TO-END PROOF — Branch1 LAN -> Branch2 LAN
+    (packet crosses area 1 -> area 0 (HQ) -> area 2)
+----------------------------------------------------------------
+vyos@Branch1:~$ ping 10.3.0.1 source-address 10.2.0.1 count 4
+PING 10.3.0.1 (10.3.0.1) from 10.2.0.1 : 56(84) bytes of data.
+64 bytes from 10.3.0.1: icmp_seq=1 ttl=63 time=1.18 ms
+64 bytes from 10.3.0.1: icmp_seq=2 ttl=63 time=1.87 ms
+64 bytes from 10.3.0.1: icmp_seq=3 ttl=63 time=1.79 ms
+64 bytes from 10.3.0.1: icmp_seq=4 ttl=63 time=1.95 ms
+
+--- 10.3.0.1 ping statistics ---
+4 packets transmitted, 4 received, 0% packet loss, time 3005ms
+
+(ttl=63: only the intermediate router (HQ) decrements TTL; the
+destination does not decrement its own received packet.)
