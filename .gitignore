@@ -1,0 +1,30 @@
+# ── Secrets & real inventories (NEVER commit) ───────────────
+.env
+*.env
+secrets.*
+inventory.yml
+inventory.yaml
+inventory.*.yml
+!inventory.example.yml          # the sanitized example IS tracked
+credentials*
+*.pem
+*.key
+
+# ── Automation backups output ───────────────────────────────
+backups/
+automation/backups/
+*.cfg.bak
+
+# ── Python ──────────────────────────────────────────────────
+venv/
+.venv/
+__pycache__/
+*.pyc
+.python-version
+
+# ── OS / editor noise ───────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
