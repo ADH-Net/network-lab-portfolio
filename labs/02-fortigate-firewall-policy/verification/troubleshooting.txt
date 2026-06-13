@@ -1,0 +1,90 @@
+================================================================
+Lab 02 — FortiFirewall troubleshooting (real captures)
+================================================================
+
+Symptom: with correct LAN->DMZ / LAN->WAN policies in place, inter-zone pings
+still timed out. Below is the methodical isolation to root cause.
+
+----------------------------------------------------------------
+[0] Baseline: deny-by-default works, host<->firewall works
+----------------------------------------------------------------
+PC-LAN> ping 10.20.20.10            # through the firewall, BEFORE any policy
+10.20.20.10 icmp_seq=1 timeout      # implicit deny drops inter-zone traffic (expected)
+
+PC-LAN> ping 10.10.10.1             # host -> its own gateway (FortiGate LAN iface)
+64 bytes from 10.10.10.1 icmp_seq=1 ttl=255 time=0.365 ms   # OK (allowaccess ping)
+# Same success from PC-DMZ->10.20.20.1 and PC-WAN->203.0.113.2.
+# => L1/L2/L3 and interface config are correct.
+
+----------------------------------------------------------------
+[1] Policies are present and correct
+----------------------------------------------------------------
+FortiFirewall # show firewall policy
+    edit 1
+        set name "LAN-to-DMZ"
+        set srcintf "port1"
+        set dstintf "port2"
+        set action accept
+        set srcaddr "all"
+        set dstaddr "all"
+        set schedule "always"
+        set service "PING" "HTTP" "HTTPS"
+        set logtraffic all
+    next
+    ...
+# action accept, correct intf/addr/service, status enable (default). Looks right.
+
+FortiFirewall # get router info routing-table all
+C       10.10.10.0/24 is directly connected, port1
+C       10.20.20.0/24 is directly connected, port2     # route to DMZ exists
+C       203.0.113.0/24 is directly connected, port3
+
+FortiFirewall # get system arp
+10.20.20.10   8   00:50:79:66:68:01  port2             # DMZ host resolved at L2
+
+----------------------------------------------------------------
+[2] Packet sniffer — where does the packet die?
+----------------------------------------------------------------
+FortiFirewall # diagnose sniffer packet any 'icmp' 4
+   port1 in  10.10.10.10 -> 10.20.20.10: icmp: echo request
+   port1 in  10.10.10.10 -> 10.20.20.10: icmp: echo request
+   port1 in  10.10.10.10 -> 10.20.20.10: icmp: echo request
+# Requests arrive on port1 IN, but NOTHING ever goes port2 OUT.
+# => the firewall accepts then drops. The DMZ host is exonerated.
+
+----------------------------------------------------------------
+[3] Flow trace — the firewall's own decision, per packet
+----------------------------------------------------------------
+FortiFirewall # diagnose debug flow filter addr 10.20.20.10
+FortiFirewall # diagnose debug flow trace start 20
+FortiFirewall # diagnose debug enable
+# (ping from PC-LAN)
+msg="vd-root:0 received a packet(proto=1, 10.10.10.10 -> 10.20.20.10) from port1"
+msg="allocate a new session-00000017"
+msg="find a route: flag=00000000 gw-0.0.0.0 via port2"
+# ...and then NOTHING. No "Allowed by Policy", no "Denied by forward policy check".
+# The packet is dropped AFTER routing, BEFORE the policy/forward stage -- silently.
+# Config + routing are correct, so this is not a policy bug.
+
+----------------------------------------------------------------
+[4] Not a resource problem
+----------------------------------------------------------------
+FortiFirewall # get system performance status
+Memory: 2039472k total, 640004k used (31.4%), 1088620k free (53.4%)
+# 31% memory -> NOT conserve mode. Rules out resource starvation.
+
+----------------------------------------------------------------
+[5] ROOT CAUSE
+----------------------------------------------------------------
+FortiFirewall # get system status
+Version: FortiFirewall-VM64-KVM v7.4.12,build2902,260505 (GA.M)
+Serial-Number: <REDACTED>
+License Status: Invalid                <==== ROOT CAUSE
+VM Resources: 1 CPU/1 allowed, 1991 MB RAM/2048 MB allowed
+Operation Mode: NAT
+
+# An unlicensed FortiGate/FortiFirewall-VM boots, accepts configuration, and
+# answers pings to its OWN interfaces, but REFUSES TO FORWARD transit traffic
+# between zones until a valid license is validated with FortiCare (needs internet
+# from the VM). Everything built in this lab is correct through the forwarding
+# stage; completing end-to-end allow/deny + VIP/DNAT tests requires a licensed VM.
