@@ -1,0 +1,85 @@
+================================================================
+Lab 01 — IPsec VPN Verification (real captures from the running lab)
+================================================================
+
+Route-based site-to-site IPsec tunnel between HQ and Branch1, built on
+top of the converged OSPF backbone. IKEv2 + AES-256/SHA-256 + DH group 14,
+PFS enabled, carried over a route-based Virtual Tunnel Interface (vti0).
+
+Tunnel /30 (overlay):  HQ vti0 10.0.99.1  <->  Branch1 vti0 10.0.99.2
+Transport (WAN):       HQ eth0 10.0.12.1  <->  Branch1 eth0 10.0.12.2
+
+----------------------------------------------------------------
+[1] Tunnel up — IKE/ESP security association established
+----------------------------------------------------------------
+vyos@HQ:~$ show vpn ipsec sa
+
+Connection    State  Uptime  Bytes In/Out  Packets In/Out  Remote address  Remote ID  Proposal
+------------  -----  ------  ------------  --------------  --------------  ---------  -----------------------------
+BRANCH1-vti   up     8m18s   420B/420B     5/5             10.0.12.2       10.0.12.2  AES_CBC_256/HMAC_SHA2_256_128
+
+# State "up" = IKE Phase 1 + Phase 2 both negotiated.
+# Proposal confirms the agreed crypto: AES-256-CBC + HMAC-SHA2-256.
+# Bytes/Packets In/Out are NON-ZERO and symmetric (5 in / 5 out) =
+#   the 5 test pings were carried THROUGH the encrypted tunnel, not the
+#   cleartext OSPF path. If traffic had leaked to OSPF, these would read 0B/0B.
+
+----------------------------------------------------------------
+[2] Route-based steering — static tunnel route wins on admin distance
+----------------------------------------------------------------
+vyos@HQ# run show ip route 10.2.0.0/24
+
+Routing entry for 10.2.0.0/24
+  Known via "static", distance 1, metric 0, best        # <-- INSTALLED (AD 1)
+  Status: Installed
+  * 10.0.99.2, via vti0, weight 1                        #     into the tunnel
+
+Routing entry for 10.2.0.0/24
+  Known via "ospf", distance 110, metric 2              # <-- backup, NOT installed
+  Status: None
+    10.0.12.2, via eth0, weight 1                       #     cleartext WAN path
+
+# The static route (AD 1) toward the vti0 next-hop overrides the OSPF route
+# (AD 110), so HQ<->Branch1 LAN traffic is pulled into the encrypted tunnel.
+# OSPF remains as automatic fail-back if the tunnel ever drops (degraded but
+# still reachable -- something you would alert on).
+
+----------------------------------------------------------------
+[3] End-to-end test — HQ LAN -> Branch1 LAN (sourced from the LAN)
+----------------------------------------------------------------
+vyos@HQ:~$ ping 10.2.0.1 count 5 source-address 10.1.0.1
+
+PING 10.2.0.1 (10.2.0.1) from 10.1.0.1 : 56(84) bytes of data.
+64 bytes from 10.2.0.1: icmp_seq=1 ttl=64 time=1.05 ms
+64 bytes from 10.2.0.1: icmp_seq=2 ttl=64 time=0.973 ms
+64 bytes from 10.2.0.1: icmp_seq=3 ttl=64 time=1.01 ms
+64 bytes from 10.2.0.1: icmp_seq=4 ttl=64 time=0.848 ms
+64 bytes from 10.2.0.1: icmp_seq=5 ttl=64 time=1.69 ms
+
+--- 10.2.0.1 ping statistics ---
+5 packets transmitted, 5 received, 0% packet loss, time 4005ms
+
+# Sourced from 10.1.0.1 (HQ LAN) to 10.2.0.1 (Branch1 LAN) so it matches the
+# 10.2.0.0/24 -> vti0 route -- i.e. real inter-site host traffic, encrypted.
+
+----------------------------------------------------------------
+[4] PROOF OF ENCRYPTION — packet capture on the physical WAN (eth0)
+----------------------------------------------------------------
+vyos@HQ:~$ monitor traffic interface eth0 filter 'ip proto 50'   # proto 50 = ESP
+
+18:56:38.224423 IP 10.0.12.2 > 10.0.12.1: ESP(spi=0xc9a6d29c,seq=0x9),  length 136
+18:56:38.224736 IP 10.0.12.1 > 10.0.12.2: ESP(spi=0xc3b1163a,seq=0x9),  length 136
+18:56:39.226209 IP 10.0.12.2 > 10.0.12.1: ESP(spi=0xc9a6d29c,seq=0xa),  length 136
+18:56:39.226338 IP 10.0.12.1 > 10.0.12.2: ESP(spi=0xc3b1163a,seq=0xa),  length 136
+18:56:40.228156 IP 10.0.12.2 > 10.0.12.1: ESP(spi=0xc9a6d29c,seq=0xb),  length 136
+18:56:40.228272 IP 10.0.12.1 > 10.0.12.2: ESP(spi=0xc3b1163a,seq=0xb),  length 136
+
+# What this proves:
+#  - Protocol is ESP (IP proto 50) -- the encrypted/authenticated payload.
+#  - Outer src/dst are the WAN addresses (10.0.12.1 <-> 10.0.12.2). The inner
+#    ICMP and the LAN IPs (10.1.0.1 / 10.2.0.1) are NOT visible on the wire.
+#  - Two SPIs (0xc9a6d29c / 0xc3b1163a) = one unidirectional SA per direction.
+#  - seq increments (0x9, 0xa, 0xb) = ESP anti-replay counter.
+#
+# Contrast test: capturing eth0 with filter 'icmp' during the same ping shows
+# NOTHING -- the cleartext ICMP never appears on the WAN, only ESP does.
