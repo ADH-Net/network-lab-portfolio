@@ -1,0 +1,59 @@
+! ============================================================================
+! DSW1 — Cisco Catalyst 3560 (collapsed-core / distribution)
+! Role: STP root bridge (all VLANs) + inter-VLAN routing (SVIs)
+! Source: Cisco Packet Tracer 'show running-config' (sanitized;
+!         unused interfaces Fa0/4-24, Gi0/1-2 and auto SVI MACs omitted)
+! ============================================================================
+version 12.2(37)SE1
+!
+hostname DSW1
+!
+ip routing
+!
+spanning-tree mode rapid-pvst
+spanning-tree vlan 1,10,20,30,99,999 priority 24576      ! 'root primary' macro
+!
+! --- Trunks: 3560 requires explicit dot1q encapsulation ---
+interface FastEthernet0/1                                ! <-> DSW2 (core link)
+ switchport trunk encapsulation dot1q
+ switchport trunk native vlan 999
+ switchport trunk allowed vlan 10,20,30,99,999
+ switchport mode trunk
+!
+interface FastEthernet0/2                                ! <-> ASW1
+ switchport trunk encapsulation dot1q
+ switchport trunk native vlan 999
+ switchport trunk allowed vlan 10,20,30,99,999
+ switchport mode trunk
+!
+interface FastEthernet0/3                                ! <-> ASW2
+ switchport trunk encapsulation dot1q
+ switchport trunk native vlan 999
+ switchport trunk allowed vlan 10,20,30,99,999
+ switchport mode trunk
+!
+! --- SVIs: per-VLAN gateways (inter-VLAN routing) ---
+interface Vlan1
+ no ip address
+ shutdown
+!
+interface Vlan10
+ ip address 10.10.10.1 255.255.255.0
+!
+interface Vlan20
+ ip address 10.10.20.1 255.255.255.0
+!
+interface Vlan30
+ ip address 10.10.30.1 255.255.255.0
+!
+interface Vlan99
+ ip address 10.10.99.1 255.255.255.0
+!
+ip classless
+!
+line con 0
+!
+line vty 0 4
+ login
+!
+end

@@ -1,0 +1,158 @@
+================================================================================
+ Lab 03 — Campus VLAN / STP : Verification & Troubleshooting Captures
+ Platform: Cisco Packet Tracer
+================================================================================
+
+--------------------------------------------------------------------------------
+1. CABLING DISCOVERY (CDP) — used to map ports to neighbors
+--------------------------------------------------------------------------------
+DSW1# show cdp neighbors
+Device ID    Local Intrfce   Capability   Platform    Port ID
+Switch       Fas 0/1                      3560        Fas 0/1     (DSW2)
+Switch       Fas 0/2          S           2960        Fas 0/1     (ASW1)
+Switch       Fas 0/3          S           2960        Fas 0/3     (ASW2)
+
+Map:
+  DSW1 Fa0/1 <-> DSW2 Fa0/1   (core link)
+  DSW1 Fa0/2 <-> ASW1 Fa0/1
+  DSW1 Fa0/3 <-> ASW2 Fa0/3
+  DSW2 Fa0/2 <-> ASW1 Fa0/2
+  DSW2 Fa0/3 <-> ASW2 Fa0/1
+
+--------------------------------------------------------------------------------
+2. VLANs
+--------------------------------------------------------------------------------
+DSW1# show vlan brief
+VLAN Name      Status
+10   STAFF     active
+20   SALES     active
+30   SERVERS   active
+99   MGMT      active
+999  NATIVE    active
+
+--------------------------------------------------------------------------------
+3. TRUNKS  (802.1Q, native 999, pruned allowed-list)
+--------------------------------------------------------------------------------
+DSW1# show interfaces trunk
+Port    Mode  Encapsulation  Status     Native vlan
+Fa0/1   on    802.1q         trunking   999
+Fa0/2   on    802.1q         trunking   999
+Fa0/3   on    802.1q         trunking   999
+
+Port    Vlans allowed on trunk
+Fa0/1   10,20,30,99,999
+Fa0/2   10,20,30,99,999
+Fa0/3   10,20,30,99,999
+
+Note: 3560 (DSW1/DSW2) requires `switchport trunk encapsulation dot1q` before
+`switchport mode trunk`; the 2960 access switches are dot1q-only (command absent).
+
+--------------------------------------------------------------------------------
+4. SPANNING TREE — deterministic root after `root primary` + rapid-pvst
+--------------------------------------------------------------------------------
+DSW1# show spanning-tree vlan 10
+VLAN0010
+  Spanning tree enabled protocol rstp
+  Root ID    Priority    24586
+             Address     0060.7086.2435
+             This bridge is the root
+  Bridge ID  Priority    24586  (priority 24576 sys-id-ext 10)
+
+Interface  Role Sts Cost  Type
+Fa0/1      Desg FWD 19    P2p
+Fa0/2      Desg FWD 19    P2p
+Fa0/3      Desg FWD 19    P2p          <- root bridge: ALL ports Designated
+
+ASW1# show spanning-tree vlan 10
+VLAN0010
+  Spanning tree enabled protocol rstp
+  Root ID    Priority 24586  Address 0060.7086.2435  Cost 19  Port 1 (Fa0/1)
+  Bridge ID  Priority 32778  Address 000B.BE2E.C74E
+
+Interface  Role Sts Cost  Type
+Fa0/1      Root FWD 19     P2p         <- direct link to root (short path)
+Fa0/2      Altn BLK 19     P2p         <- DSW2 uplink, hot standby
+
+--------------------------------------------------------------------------------
+5. INTER-VLAN ROUTING (DSW1 SVIs + ip routing)
+--------------------------------------------------------------------------------
+DSW1# show ip interface brief | include Vlan
+Vlan1    unassigned   administratively down  down
+Vlan10   10.10.10.1   up   up
+Vlan20   10.10.20.1   up   up
+Vlan30   10.10.30.1   up   up
+Vlan99   10.10.99.1   up   up
+
+DSW1# show ip route
+     10.0.0.0/24 is subnetted, 4 subnets
+C       10.10.10.0 is directly connected, Vlan10
+C       10.10.20.0 is directly connected, Vlan20
+C       10.10.30.0 is directly connected, Vlan30
+C       10.10.99.0 is directly connected, Vlan99
+
+--------------------------------------------------------------------------------
+6. CONNECTIVITY TESTS (from PC0, VLAN 10, 10.10.10.10)
+--------------------------------------------------------------------------------
+# Test 1 - own gateway (local VLAN + SVI)
+C:\> ping 10.10.10.1     -> 4/4 replies, TTL=255
+
+# Test 2 - far gateway (routing works)
+C:\> ping 10.10.20.1     -> 4/4 replies, TTL=255
+
+# Test 3 - PC0 -> PC1 ACROSS VLANs (the prize)
+C:\> ping 10.10.20.10
+Request timed out.                                   (first packet = ARP)
+Reply from 10.10.20.10: bytes=32 time<1ms TTL=127    <- TTL 128->127 = ROUTED
+Reply from 10.10.20.10: bytes=32 time=8ms  TTL=127
+Reply from 10.10.20.10: bytes=32 time<1ms TTL=127
+  Packets: Sent = 4, Received = 3, Lost = 1 (25% loss)   (the 1 loss = ARP)
+
+PROOF: TTL=127 on PC->PC vs TTL=255 on PC->SVI confirms one routed hop (DSW1).
+
+--------------------------------------------------------------------------------
+7. STP FAILOVER TEST (zero loss)
+--------------------------------------------------------------------------------
+# Continuous ping running on PC0:   C:\> ping -t 10.10.20.10
+# Then on DSW1: interface fa0/2 / shutdown   (kills ASW1's active root-port link)
+
+Ping statistics for 10.10.20.10:
+    Packets: Sent = 91, Received = 91, Lost = 0 (0% loss)
+
+RSTP promoted ASW1's pre-computed Alternate port (Fa0/2 -> DSW2) to forwarding
+instantly. New path: ASW1 -> DSW2 -> DSW1 -> ASW2 -> PC1. Classic STP would have
+dropped traffic ~30s; Rapid-PVST+ = 0 lost packets.
+# Healed with: interface fa0/2 / no shutdown  (Fa0/1 reclaimed as root port)
+
+--------------------------------------------------------------------------------
+8. PORT SECURITY (sticky MAC, max 1, violation shutdown)
+--------------------------------------------------------------------------------
+ASW1# show port-security interface fa0/3
+Port Security              : Enabled
+Port Status                : Secure-up
+Violation Mode             : Shutdown
+Maximum MAC Addresses      : 1
+Total MAC Addresses        : 1
+Sticky MAC Addresses       : 1
+Last Source Address:Vlan   : 000A.F398.5532:10
+Security Violation Count   : 0
+
+ASW1# show port-security address
+Vlan    Mac Address       Type           Ports
+10      000A.F398.5532    SecureSticky   Fa0/3
+
+================================================================================
+ TROUBLESHOOTING LOG — STP root placement & convergence (4 layers)
+================================================================================
+1. Random root (MAC lottery): equal default priorities -> lowest MAC won.
+   Fix: spanning-tree vlan <list> root primary/secondary on the core.
+2. Per-VLAN re-lottery: PVST+ runs one tree per VLAN; new VLANs reverted to
+   default priority. Fix: apply root primary/secondary to ALL VLAN IDs.
+3. STP mode mismatch: access = classic 'ieee', core = 'rstp' -> inverted roles
+   (root showed Altn/BLK ports; access switch out-designated root, cost-38 long
+   path). Fix: spanning-tree mode rapid-pvst on ALL switches.
+4. Stuck P2P link: failed RSTP proposal/agreement wedged a link.
+   Fix: shut / no shut to force clean renegotiation.
+
+METHOD: when a switch's self-report is contradictory, check the NEIGHBOR.
+DSW1 claimed "This bridge is the root" yet showed blocking ports; ASW1's
+`show spanning-tree vlan 10` immediately revealed `protocol ieee`.

@@ -21,7 +21,7 @@ GNS3 · VyOS · FRRouting · Cisco Packet Tracer · Linux · Python (Netmiko) ·
 |---|-----|-------|--------|
 | 01 | [Multi-site OSPF + IPsec VPN](labs/01-multisite-ospf-vpn/) | Multi-area OSPF (backbone + stub areas), site-to-site IPsec, hub-and-spoke WAN | 🟢 OSPF complete · IPsec in progress |
 | 02 | [FortiGate Firewall Policy](labs/02-fortigate-firewall-policy/) | LAN/DMZ/WAN zones, NAT, deny-by-default policy, logging | ⚪ Planned |
-| 03 | [Campus VLAN / STP](labs/03-campus-vlan-stp/) | Collapsed core, 802.1Q trunks, Rapid-PVST+, port security, inter-VLAN routing | ⚪ Planned |
+| 03 | [Campus VLAN / STP](labs/03-campus-vlan-stp/) | Collapsed core, 802.1Q trunks, Rapid-PVST+, port security, inter-VLAN routing | 🟢 Complete |
 
 ## Automation
 [`automation/`](automation/) — Python (Netmiko) and Bash tooling that runs against the lab devices: multi-device config backup and a compliance audit against a baseline. Credentials are never hardcoded.

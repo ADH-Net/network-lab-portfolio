@@ -1,0 +1,45 @@
+! ============================================================================
+! DSW2 — Cisco Catalyst 3560 (collapsed-core / distribution)
+! Role: STP SECONDARY root (standby). Layer-2 only — no 'ip routing'/SVIs;
+!       DSW1 is the active inter-VLAN router (HSRP redundancy = future work).
+! Source: Cisco Packet Tracer 'show running-config' (sanitized;
+!         unused interfaces Fa0/4-24, Gi0/1-2 omitted)
+! ============================================================================
+version 12.2(37)SE1
+!
+hostname DSW2
+!
+spanning-tree mode rapid-pvst
+spanning-tree vlan 1,10,20,30,99,999 priority 28672      ! 'root secondary' macro
+!
+! --- Trunks: 3560 requires explicit dot1q encapsulation ---
+interface FastEthernet0/1                                ! <-> DSW1 (core link)
+ switchport trunk encapsulation dot1q
+ switchport trunk native vlan 999
+ switchport trunk allowed vlan 10,20,30,99,999
+ switchport mode trunk
+!
+interface FastEthernet0/2                                ! <-> ASW1
+ switchport trunk encapsulation dot1q
+ switchport trunk native vlan 999
+ switchport trunk allowed vlan 10,20,30,99,999
+ switchport mode trunk
+!
+interface FastEthernet0/3                                ! <-> ASW2
+ switchport trunk encapsulation dot1q
+ switchport trunk native vlan 999
+ switchport trunk allowed vlan 10,20,30,99,999
+ switchport mode trunk
+!
+interface Vlan1
+ no ip address
+ shutdown
+!
+ip classless
+!
+line con 0
+!
+line vty 0 4
+ login
+!
+end

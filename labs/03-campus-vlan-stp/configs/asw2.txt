@@ -1,0 +1,48 @@
+! ============================================================================
+! ASW2 — Cisco Catalyst 2960 (access layer)
+! Role: dual-homed access switch; PC1 (VLAN 20) on Fa0/2
+! Source: Cisco Packet Tracer 'show running-config' (sanitized;
+!         unused interfaces Fa0/4-24, Gi0/1-2 omitted)
+! Note: 2960 is dot1q-only -> no 'switchport trunk encapsulation' line.
+!       'maximum 1' / 'violation shutdown' are defaults, so IOS omits them.
+! ============================================================================
+version 15.0
+!
+hostname ASW2
+!
+spanning-tree mode rapid-pvst
+spanning-tree extend system-id
+!
+! --- Uplink trunks to the core ---
+interface FastEthernet0/1                                ! <-> DSW2 (standby)
+ switchport trunk native vlan 999
+ switchport trunk allowed vlan 10,20,30,99,999
+ switchport mode trunk
+!
+interface FastEthernet0/3                                ! <-> DSW1 (root port)
+ switchport trunk native vlan 999
+ switchport trunk allowed vlan 10,20,30,99,999
+ switchport mode trunk
+!
+! --- Access port: PC1, VLAN 20, edge hardening + port security ---
+interface FastEthernet0/2
+ switchport access vlan 20
+ switchport mode access
+ switchport port-security
+ switchport port-security mac-address sticky
+ switchport port-security mac-address sticky 0090.0C25.C81C
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+!
+interface Vlan1
+ no ip address
+ shutdown
+!
+line con 0
+!
+line vty 0 4
+ login
+line vty 5 15
+ login
+!
+end
